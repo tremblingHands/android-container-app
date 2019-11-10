@@ -3497,6 +3497,10 @@ public final class ActivityManagerService extends ActivityManagerNative
             boolean knownToBeDead, int intentFlags, String hostingType, ComponentName hostingName,
             boolean allowWhileBooting, boolean isolated, int isolatedUid, boolean keepIfLarge,
             String abiOverride, String entryPoint, String[] entryPointArgs, Runnable crashHandler) {
+
+        // omni
+        Slog.w("omni", "omni startProcessLocked isolated = " + isolated);
+
         long startTime = SystemClock.elapsedRealtime();
         ProcessRecord app;
         if (!isolated) {
@@ -3577,6 +3581,8 @@ public final class ActivityManagerService extends ActivityManagerNative
 
         if (app == null) {
             checkTime(startTime, "startProcess: creating new process record");
+
+            // omni 分配 uid 如果 isolated 为 true，则分配独立的 UID
             app = newProcessRecordLocked(info, processName, isolated, isolatedUid);
             if (app == null) {
                 Slog.w(TAG, "Failed making new process record for "
@@ -3749,6 +3755,9 @@ public final class ActivityManagerService extends ActivityManagerNative
             Trace.traceBegin(Trace.TRACE_TAG_ACTIVITY_MANAGER, "Start proc: " +
                     app.processName);
             checkTime(startTime, "startProcess: asking zygote to start proc");
+
+            // omni 通知zygote创建进程
+            
             Process.ProcessStartResult startResult = Process.start(entryPoint,
                     app.processName, uid, uid, gids, debugFlags, mountExternal,
                     app.info.targetSdkVersion, app.info.seinfo, requiredAbi, instructionSet,
@@ -4317,6 +4326,9 @@ public final class ActivityManagerService extends ActivityManagerNative
         enforceNotIsolatedCaller("startActivity");
         userId = mUserController.handleIncomingUser(Binder.getCallingPid(), Binder.getCallingUid(),
                 userId, false, ALLOW_FULL_ONLY, "startActivity", null);
+
+        // omni
+        Slog.w("omni", "omni startActivityAsUser userId = " + userId);
         // TODO: Switch to user app stacks here.
         return mActivityStarter.startActivityMayWait(caller, -1, callingPackage, intent,
                 resolvedType, null, null, resultTo, resultWho, requestCode, startFlags,

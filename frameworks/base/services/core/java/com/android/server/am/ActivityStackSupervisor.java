@@ -1376,8 +1376,19 @@ public final class ActivityStackSupervisor implements DisplayListener {
     void startSpecificActivityLocked(ActivityRecord r,
             boolean andResume, boolean checkConfig) {
         // Is this activity's application already running?
+        // omni
+        // 根据processName和UID在系统中查找是否已经有相应的进程存在
         ProcessRecord app = mService.getProcessRecordLocked(r.processName,
                 r.info.applicationInfo.uid, true);
+
+        // omni
+        if (app == null) {
+            Slog.w("omni", "omni ActivityStackSupervisor.java app Name = " + r.processName + 
+                " uid = " + r.info.applicationInfo.uid + " has not created before");
+        } else {
+            Slog.w("omni", "omni ActivityStackSupervisor.java created before. app = " + app);
+        }
+        
 
         r.task.stack.setLaunchTime(r);
 

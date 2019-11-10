@@ -413,6 +413,10 @@ public class Process {
             final LocalSocket zygoteSocket = new LocalSocket();
 
             try {
+                // omni LocalSocket namespace
+                // ABSTRACT : 抽象命名空间
+                // RESERVED : /dev/socket/
+                // FILESYSTEM : 传统的文件系统命名空间
                 zygoteSocket.connect(new LocalSocketAddress(socketAddress,
                         LocalSocketAddress.Namespace.RESERVED));
 
@@ -725,6 +729,9 @@ public class Process {
                     argsForZygote.add(arg);
                 }
             }
+
+            // omni 根据 abi 的不同连接到不同的 zygote socket
+            Log.e("omni","omni Process.java argsForZygote = " + argsForZygote);
 
             return zygoteSendArgsAndGetResult(openZygoteSocketIfNeeded(abi), argsForZygote);
         }

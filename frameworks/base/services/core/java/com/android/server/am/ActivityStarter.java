@@ -684,6 +684,12 @@ class ActivityStarter {
             ProfilerInfo profilerInfo, IActivityManager.WaitResult outResult, Configuration config,
             Bundle bOptions, boolean ignoreTargetSecurity, int userId,
             IActivityContainer iContainer, TaskRecord inTask) {
+
+        // omni
+        Slog.w("omni", "omni ActivityStarter.java : startActivityMayWait intent = " + intent);
+        Slog.w("omni", "omni ActivityStarter.java : startActivityMayWait Extras = " + intent.getExtras());
+        
+        
         // Refuse possible leaked file descriptors
         if (intent != null && intent.hasFileDescriptors()) {
             throw new IllegalArgumentException("File descriptors passed in Intent");
