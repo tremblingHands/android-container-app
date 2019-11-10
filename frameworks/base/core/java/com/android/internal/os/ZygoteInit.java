@@ -63,6 +63,10 @@ import java.lang.reflect.Method;
 import java.security.Security;
 import java.security.Provider;
 import java.util.ArrayList;
+import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Iterator;
+
 
 /**
  * Startup class for the zygote process.
@@ -122,6 +126,34 @@ public class ZygoteInit {
             try {
                 String env = System.getenv(fullSocketName);
                 fileDesc = Integer.parseInt(env);
+            } catch (RuntimeException ex) {
+                throw new RuntimeException(fullSocketName + " unset or invalid", ex);
+            }
+
+            try {
+                FileDescriptor fd = new FileDescriptor();
+                fd.setInt$(fileDesc);
+                sServerSocket = new LocalServerSocket(fd);
+            } catch (IOException ex) {
+                throw new RuntimeException(
+                        "Error binding to local socket '" + fileDesc + "'", ex);
+            }
+        }
+    }
+
+    /**
+     * Registers a server socket for omni command connections
+     *
+     * @throws RuntimeException when open fails
+     */
+    private static void omniregisterZygoteSocket(String socketName) {
+        if (sServerSocket == null) {
+            int fileDesc;
+            final String fullSocketName = "omni";
+            try {
+                String env = System.getenv(fullSocketName);
+                fileDesc = Integer.parseInt(env);
+                Log.e("omni", "omni Zygote:  get " + fullSocketName + " = " + fileDesc);
             } catch (RuntimeException ex) {
                 throw new RuntimeException(fullSocketName + " unset or invalid", ex);
             }
@@ -688,8 +720,17 @@ public class ZygoteInit {
     public static void main(String argv[]) {
         // Mark zygote start. This ensures that thread creation will throw
         // an error.
-        ZygoteHooks.startZygoteNoThreadCreation();
+        Map map = System.getenv();
+		Iterator it = map.entrySet().iterator();
+		while(it.hasNext())
+		{
+			Entry entry = (Entry)it.next();
+            Log.e("omni", "omni ZygoteInit.java:  get " + entry.getKey() + " = " + entry.getValue());
+        }
 
+
+
+        ZygoteHooks.startZygoteNoThreadCreation();
         try {
             Trace.traceBegin(Trace.TRACE_TAG_DALVIK, "ZygoteInit");
             RuntimeInit.enableDdms();
@@ -699,9 +740,12 @@ public class ZygoteInit {
             boolean startSystemServer = false;
             String socketName = "zygote";
             String abiList = null;
+            boolean omni = false;
             for (int i = 1; i < argv.length; i++) {
                 if ("start-system-server".equals(argv[i])) {
                     startSystemServer = true;
+                } else if ("omni".equals(argv[i])) {
+                    omni = true;
                 } else if (argv[i].startsWith(ABI_LIST_ARG)) {
                     abiList = argv[i].substring(ABI_LIST_ARG.length());
                 } else if (argv[i].startsWith(SOCKET_NAME_ARG)) {
@@ -715,7 +759,13 @@ public class ZygoteInit {
                 throw new RuntimeException("No ABI list supplied.");
             }
 
-            registerZygoteSocket(socketName);
+            // omni
+            if (omni) {
+                omniregisterZygoteSocket(socketName);
+            } else {
+                registerZygoteSocket(socketName);
+            }
+            
             Trace.traceBegin(Trace.TRACE_TAG_DALVIK, "ZygotePreload");
             EventLog.writeEvent(LOG_BOOT_PROGRESS_PRELOAD_START,
                 SystemClock.uptimeMillis());

@@ -12,6 +12,8 @@
 #include <sys/prctl.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <sys/socket.h>
+#include <sys/un.h>
 
 #include <binder/IPCThreadState.h>
 #include <binder/ProcessState.h>
@@ -239,6 +241,7 @@ int main(int argc, char* const argv[])
     bool zygote = false;
     bool startSystemServer = false;
     bool application = false;
+    bool omni = false;
     String8 niceName;
     String8 className;
 
@@ -248,6 +251,8 @@ int main(int argc, char* const argv[])
         if (strcmp(arg, "--zygote") == 0) {
             zygote = true;
             niceName = ZYGOTE_NICE_NAME;
+        } else if (strcmp(arg, "--omni") == 0) {
+            omni = true;
         } else if (strcmp(arg, "--start-system-server") == 0) {
             startSystemServer = true;
         } else if (strcmp(arg, "--application") == 0) {
@@ -275,6 +280,49 @@ int main(int argc, char* const argv[])
     } else {
         // We're in zygote mode.
         maybeCreateDalvikCache();
+
+
+        // omni
+        if(omni) {
+            ALOGV("omni App process: omni in !!!\n");
+            args.add(String8("omni"));
+            const char name[] = "/dev/socket/omni";
+            struct sockaddr_un addr;
+            int fd, ret;
+
+            fd = socket(PF_UNIX, SOCK_STREAM, 0);
+            if (fd < 0) {
+                ALOGV("omni App process: Failed to open socket '%s'\n", name);
+                return -1;
+            }
+
+            memset(&addr, 0 , sizeof(addr));
+            addr.sun_family = AF_UNIX;
+            snprintf(addr.sun_path, sizeof(addr.sun_path),name);
+
+            ret = unlink(addr.sun_path);
+            if (ret != 0 ) {
+                ALOGV("omni App process: Failed to unlink old socket '%s'\n", name);
+            }
+
+            ret = bind(fd, (struct sockaddr *) &addr, sizeof (addr));
+
+            if (ret) {
+                ALOGV("omni App process: Failed to bind socket '%s'\n", name);
+            }
+            ALOGV("omni App process: Created socket '%s'\n", name);
+
+            char* entry;
+            char key[] = "omni";
+            asprintf(&entry, "%s=%d", key, fd);
+            putenv(entry);
+
+            ALOGV("omni App process: get env '%s' : '%s'\n", key, getenv(key));
+        }
+
+
+
+
 
         if (startSystemServer) {
             args.add(String8("start-system-server"));
