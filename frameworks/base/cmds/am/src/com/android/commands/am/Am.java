@@ -102,6 +102,7 @@ public class Am extends BaseCommand {
     private int mStartFlags = 0;
     private boolean mWaitOption = false;
     private boolean mStopOption = false;
+    private boolean noomni = false;
 
     private int mRepeat = 0;
     private int mUserId;
@@ -126,7 +127,7 @@ public class Am extends BaseCommand {
         PrintWriter pw = new PrintWriter(out);
         pw.println(
                 "usage: am [subcommand] [options]\n" +
-                "usage: am start [-D] [-N] [-W] [-P <FILE>] [--start-profiler <FILE>]\n" +
+                "usage: am start [-O] [-D] [-N] [-W] [-P <FILE>] [--start-profiler <FILE>]\n" +
                 "               [--sampling INTERVAL] [-R COUNT] [-S]\n" +
                 "               [--track-allocation] [--user <USER_ID> | current] <INTENT>\n" +
                 "       am startservice [--user <USER_ID> | current] <INTENT>\n" +
@@ -479,6 +480,7 @@ public class Am extends BaseCommand {
         mStartFlags = 0;
         mWaitOption = false;
         mStopOption = false;
+        noomni = false;
         mRepeat = 0;
         mProfileFile = null;
         mSamplingInterval = 0;
@@ -505,6 +507,8 @@ public class Am extends BaseCommand {
                     mSamplingInterval = Integer.parseInt(nextArgRequired());
                 } else if (opt.equals("-R")) {
                     mRepeat = Integer.parseInt(nextArgRequired());
+                } else if (opt.equals("-O")) {
+                    noomni = true;
                 } else if (opt.equals("-S")) {
                     mStopOption = true;
                 } else if (opt.equals("--track-allocation")) {
@@ -601,7 +605,11 @@ public class Am extends BaseCommand {
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
 
             // omni
-            intent.putExtra("myname", "omni");
+            if (!noomni) {
+                intent.putExtra("myname", "omni");
+            }
+            
+            
             System.out.println("omni Starting: " + intent);
 
 
