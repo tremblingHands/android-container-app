@@ -58,6 +58,7 @@ static const char* kPathWhitelist[] = {
   "/dev/dri/renderD129", // Fixes b/31172436
   // omni
   "/dev/socket/omni",
+  "/dev/pts/0",
 };
 
 static const char* kFdPath = "/proc/self/fd";
