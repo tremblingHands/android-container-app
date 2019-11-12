@@ -600,6 +600,11 @@ public class Am extends BaseCommand {
             System.out.println("Starting: " + intent);
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
 
+            // omni
+            intent.putExtra("myname", "omni");
+            System.out.println("omni Starting: " + intent);
+
+
             ParcelFileDescriptor fd = null;
             ProfilerInfo profilerInfo = null;
 
