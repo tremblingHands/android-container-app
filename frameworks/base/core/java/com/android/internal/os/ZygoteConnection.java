@@ -130,7 +130,6 @@ class ZygoteConnection {
      * method in child process
      */
     boolean runOnce() throws ZygoteInit.MethodAndArgsCaller {
-
         String args[];
         Arguments parsedArgs = null;
         FileDescriptor[] descriptors;

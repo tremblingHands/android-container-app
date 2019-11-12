@@ -3483,6 +3483,368 @@ public final class ActivityManagerService extends ActivityManagerNative
         }
     }
 
+
+    final ProcessRecord omnistartProcessLocked(String processName,
+            ApplicationInfo info, boolean knownToBeDead, int intentFlags,
+            String hostingType, ComponentName hostingName, boolean allowWhileBooting,
+            boolean isolated, boolean keepIfLarge, Intent intent) {
+        return omnistartProcessLocked(processName, info, knownToBeDead, intentFlags, hostingType,
+                hostingName, allowWhileBooting, isolated, 0 /* isolatedUid */, keepIfLarge,
+                null /* ABI override */, null /* entryPoint */, null /* entryPointArgs */,
+                null /* crashHandler */, intent);
+    }   
+
+
+    final ProcessRecord omnistartProcessLocked(String processName, ApplicationInfo info,
+            boolean knownToBeDead, int intentFlags, String hostingType, ComponentName hostingName,
+            boolean allowWhileBooting, boolean isolated, int isolatedUid, boolean keepIfLarge,
+            String abiOverride, String entryPoint, String[] entryPointArgs, Runnable crashHandler, Intent intent) {
+
+        // omni
+        Slog.w("omni", "omni startProcessLocked isolated = " + isolated);
+
+        long startTime = SystemClock.elapsedRealtime();
+        ProcessRecord app;
+        if (!isolated) {
+            app = getProcessRecordLocked(processName, info.uid, keepIfLarge);
+            checkTime(startTime, "startProcess: after getProcessRecord");
+
+            if ((intentFlags & Intent.FLAG_FROM_BACKGROUND) != 0) {
+                // If we are in the background, then check to see if this process
+                // is bad.  If so, we will just silently fail.
+                if (mAppErrors.isBadProcessLocked(info)) {
+                    if (DEBUG_PROCESSES) Slog.v(TAG, "Bad process: " + info.uid
+                            + "/" + info.processName);
+                    return null;
+                }
+            } else {
+                // When the user is explicitly starting a process, then clear its
+                // crash count so that we won't make it bad until they see at
+                // least one crash dialog again, and make the process good again
+                // if it had been bad.
+                if (DEBUG_PROCESSES) Slog.v(TAG, "Clearing bad process: " + info.uid
+                        + "/" + info.processName);
+                mAppErrors.resetProcessCrashTimeLocked(info);
+                if (mAppErrors.isBadProcessLocked(info)) {
+                    EventLog.writeEvent(EventLogTags.AM_PROC_GOOD,
+                            UserHandle.getUserId(info.uid), info.uid,
+                            info.processName);
+                    mAppErrors.clearBadProcessLocked(info);
+                    if (app != null) {
+                        app.bad = false;
+                    }
+                }
+            }
+        } else {
+            // If this is an isolated process, it can't re-use an existing process.
+            app = null;
+        }
+
+        // app launch boost for big.little configurations
+        // use cpusets to migrate freshly launched tasks to big cores
+        nativeMigrateToBoost();
+        mIsBoosted = true;
+        mBoostStartTime = SystemClock.uptimeMillis();
+        Message msg = mHandler.obtainMessage(APP_BOOST_DEACTIVATE_MSG);
+        mHandler.sendMessageDelayed(msg, APP_BOOST_MESSAGE_DELAY);
+
+        // We don't have to do anything more if:
+        // (1) There is an existing application record; and
+        // (2) The caller doesn't think it is dead, OR there is no thread
+        //     object attached to it so we know it couldn't have crashed; and
+        // (3) There is a pid assigned to it, so it is either starting or
+        //     already running.
+        if (DEBUG_PROCESSES) Slog.v(TAG_PROCESSES, "startProcess: name=" + processName
+                + " app=" + app + " knownToBeDead=" + knownToBeDead
+                + " thread=" + (app != null ? app.thread : null)
+                + " pid=" + (app != null ? app.pid : -1));
+        if (app != null && app.pid > 0) {
+            if ((!knownToBeDead && !app.killed) || app.thread == null) {
+                // We already have the app running, or are waiting for it to
+                // come up (we have a pid but not yet its thread), so keep it.
+                if (DEBUG_PROCESSES) Slog.v(TAG_PROCESSES, "App already running: " + app);
+                // If this is a new package in the process, add the package to the list
+                app.addPackage(info.packageName, info.versionCode, mProcessStats);
+                checkTime(startTime, "startProcess: done, added package to proc");
+                return app;
+            }
+
+            // An application record is attached to a previous process,
+            // clean it up now.
+            if (DEBUG_PROCESSES || DEBUG_CLEANUP) Slog.v(TAG_PROCESSES, "App died: " + app);
+            checkTime(startTime, "startProcess: bad proc running, killing");
+            killProcessGroup(app.uid, app.pid);
+            handleAppDiedLocked(app, true, true);
+            checkTime(startTime, "startProcess: done killing old proc");
+        }
+
+        String hostingNameStr = hostingName != null
+                ? hostingName.flattenToShortString() : null;
+
+        if (app == null) {
+            checkTime(startTime, "startProcess: creating new process record");
+
+            // omni 分配 uid 如果 isolated 为 true，则分配独立的 UID
+            app = newProcessRecordLocked(info, processName, isolated, isolatedUid);
+            if (app == null) {
+                Slog.w(TAG, "Failed making new process record for "
+                        + processName + "/" + info.uid + " isolated=" + isolated);
+                return null;
+            }
+            app.crashHandler = crashHandler;
+            checkTime(startTime, "startProcess: done creating new process record");
+        } else {
+            // If this is a new package in the process, add the package to the list
+            app.addPackage(info.packageName, info.versionCode, mProcessStats);
+            checkTime(startTime, "startProcess: added package to existing proc");
+        }
+
+        // If the system is not ready yet, then hold off on starting this
+        // process until it is.
+        if (!mProcessesReady
+                && !isAllowedWhileBooting(info)
+                && !allowWhileBooting) {
+            if (!mProcessesOnHold.contains(app)) {
+                mProcessesOnHold.add(app);
+            }
+            if (DEBUG_PROCESSES) Slog.v(TAG_PROCESSES,
+                    "System not ready, putting on hold: " + app);
+            checkTime(startTime, "startProcess: returning with proc on hold");
+            return app;
+        }
+
+        checkTime(startTime, "startProcess: stepping in to startProcess");
+        omnistartProcessLocked(
+                app, hostingType, hostingNameStr, abiOverride, entryPoint, entryPointArgs, intent);
+        checkTime(startTime, "startProcess: done starting proc!");
+        return (app.pid != 0) ? app : null;
+    }
+
+
+    private final void omnistartProcessLocked(ProcessRecord app, String hostingType,
+            String hostingNameStr, String abiOverride, String entryPoint, String[] entryPointArgs, Intent intent) {
+        long startTime = SystemClock.elapsedRealtime();
+        if (app.pid > 0 && app.pid != MY_PID) {
+            checkTime(startTime, "startProcess: removing from pids map");
+            synchronized (mPidsSelfLocked) {
+                mPidsSelfLocked.remove(app.pid);
+                mHandler.removeMessages(PROC_START_TIMEOUT_MSG, app);
+            }
+            checkTime(startTime, "startProcess: done removing from pids map");
+            app.setPid(0);
+        }
+
+        if (DEBUG_PROCESSES && mProcessesOnHold.contains(app)) Slog.v(TAG_PROCESSES,
+                "startProcessLocked removing on hold: " + app);
+        mProcessesOnHold.remove(app);
+
+        checkTime(startTime, "startProcess: starting to update cpu stats");
+        updateCpuStats();
+        checkTime(startTime, "startProcess: done updating cpu stats");
+
+        try {
+            try {
+                final int userId = UserHandle.getUserId(app.uid);
+                AppGlobals.getPackageManager().checkPackageStartable(app.info.packageName, userId);
+            } catch (RemoteException e) {
+                throw e.rethrowAsRuntimeException();
+            }
+
+            int uid = app.uid;
+            int[] gids = null;
+            int mountExternal = Zygote.MOUNT_EXTERNAL_NONE;
+            if (!app.isolated) {
+                int[] permGids = null;
+                try {
+                    checkTime(startTime, "startProcess: getting gids from package manager");
+                    final IPackageManager pm = AppGlobals.getPackageManager();
+                    permGids = pm.getPackageGids(app.info.packageName,
+                            MATCH_DEBUG_TRIAGED_MISSING, app.userId);
+                    MountServiceInternal mountServiceInternal = LocalServices.getService(
+                            MountServiceInternal.class);
+                    mountExternal = mountServiceInternal.getExternalStorageMountMode(uid,
+                            app.info.packageName);
+                } catch (RemoteException e) {
+                    throw e.rethrowAsRuntimeException();
+                }
+
+                /*
+                 * Add shared application and profile GIDs so applications can share some
+                 * resources like shared libraries and access user-wide resources
+                 */
+                if (ArrayUtils.isEmpty(permGids)) {
+                    gids = new int[2];
+                } else {
+                    gids = new int[permGids.length + 2];
+                    System.arraycopy(permGids, 0, gids, 2, permGids.length);
+                }
+                gids[0] = UserHandle.getSharedAppGid(UserHandle.getAppId(uid));
+                gids[1] = UserHandle.getUserGid(UserHandle.getUserId(uid));
+            }
+            checkTime(startTime, "startProcess: building args");
+            if (mFactoryTest != FactoryTest.FACTORY_TEST_OFF) {
+                if (mFactoryTest == FactoryTest.FACTORY_TEST_LOW_LEVEL
+                        && mTopComponent != null
+                        && app.processName.equals(mTopComponent.getPackageName())) {
+                    uid = 0;
+                }
+                if (mFactoryTest == FactoryTest.FACTORY_TEST_HIGH_LEVEL
+                        && (app.info.flags&ApplicationInfo.FLAG_FACTORY_TEST) != 0) {
+                    uid = 0;
+                }
+            }
+            int debugFlags = 0;
+            if ((app.info.flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0) {
+                debugFlags |= Zygote.DEBUG_ENABLE_DEBUGGER;
+                // Also turn on CheckJNI for debuggable apps. It's quite
+                // awkward to turn on otherwise.
+                debugFlags |= Zygote.DEBUG_ENABLE_CHECKJNI;
+            }
+            // Run the app in safe mode if its manifest requests so or the
+            // system is booted in safe mode.
+            if ((app.info.flags & ApplicationInfo.FLAG_VM_SAFE_MODE) != 0 ||
+                mSafeMode == true) {
+                debugFlags |= Zygote.DEBUG_ENABLE_SAFEMODE;
+            }
+            if ("1".equals(SystemProperties.get("debug.checkjni"))) {
+                debugFlags |= Zygote.DEBUG_ENABLE_CHECKJNI;
+            }
+            String genDebugInfoProperty = SystemProperties.get("debug.generate-debug-info");
+            if ("true".equals(genDebugInfoProperty)) {
+                debugFlags |= Zygote.DEBUG_GENERATE_DEBUG_INFO;
+            }
+            if ("1".equals(SystemProperties.get("debug.jni.logging"))) {
+                debugFlags |= Zygote.DEBUG_ENABLE_JNI_LOGGING;
+            }
+            if ("1".equals(SystemProperties.get("debug.assert"))) {
+                debugFlags |= Zygote.DEBUG_ENABLE_ASSERT;
+            }
+            if (mNativeDebuggingApp != null && mNativeDebuggingApp.equals(app.processName)) {
+                // Enable all debug flags required by the native debugger.
+                debugFlags |= Zygote.DEBUG_ALWAYS_JIT;          // Don't interpret anything
+                debugFlags |= Zygote.DEBUG_GENERATE_DEBUG_INFO; // Generate debug info
+                debugFlags |= Zygote.DEBUG_NATIVE_DEBUGGABLE;   // Disbale optimizations
+                mNativeDebuggingApp = null;
+            }
+
+            String requiredAbi = (abiOverride != null) ? abiOverride : app.info.primaryCpuAbi;
+            if (requiredAbi == null) {
+                requiredAbi = Build.SUPPORTED_ABIS[0];
+            }
+
+            String instructionSet = null;
+            if (app.info.primaryCpuAbi != null) {
+                instructionSet = VMRuntime.getInstructionSet(app.info.primaryCpuAbi);
+            }
+
+            app.gids = gids;
+            app.requiredAbi = requiredAbi;
+            app.instructionSet = instructionSet;
+
+            // Start the process.  It will either succeed and return a result containing
+            // the PID of the new process, or else throw a RuntimeException.
+            boolean isActivityProcess = (entryPoint == null);
+            if (entryPoint == null) entryPoint = "android.app.ActivityThread";
+            Trace.traceBegin(Trace.TRACE_TAG_ACTIVITY_MANAGER, "Start proc: " +
+                    app.processName);
+            checkTime(startTime, "startProcess: asking zygote to start proc");
+
+            // omni 通知zygote创建进程
+            
+            Process.ProcessStartResult startResult = Process.omnistart(entryPoint,
+                    app.processName, uid, uid, gids, debugFlags, mountExternal,
+                    app.info.targetSdkVersion, app.info.seinfo, requiredAbi, instructionSet,
+                    app.info.dataDir, entryPointArgs, intent);
+            checkTime(startTime, "startProcess: returned from zygote!");
+            Trace.traceEnd(Trace.TRACE_TAG_ACTIVITY_MANAGER);
+
+            if (app.isolated) {
+                mBatteryStatsService.addIsolatedUid(app.uid, app.info.uid);
+            }
+            mBatteryStatsService.noteProcessStart(app.processName, app.info.uid);
+            checkTime(startTime, "startProcess: done updating battery stats");
+
+            EventLog.writeEvent(EventLogTags.AM_PROC_START,
+                    UserHandle.getUserId(uid), startResult.pid, uid,
+                    app.processName, hostingType,
+                    hostingNameStr != null ? hostingNameStr : "");
+
+            try {
+                AppGlobals.getPackageManager().logAppProcessStartIfNeeded(app.processName, app.uid,
+                        app.info.seinfo, app.info.sourceDir, startResult.pid);
+            } catch (RemoteException ex) {
+                // Ignore
+            }
+
+            if (app.persistent) {
+                Watchdog.getInstance().processStarted(app.processName, startResult.pid);
+            }
+
+            checkTime(startTime, "startProcess: building log message");
+            StringBuilder buf = mStringBuilder;
+            buf.setLength(0);
+            buf.append("Start proc ");
+            buf.append(startResult.pid);
+            buf.append(':');
+            buf.append(app.processName);
+            buf.append('/');
+            UserHandle.formatUid(buf, uid);
+            if (!isActivityProcess) {
+                buf.append(" [");
+                buf.append(entryPoint);
+                buf.append("]");
+            }
+            buf.append(" for ");
+            buf.append(hostingType);
+            if (hostingNameStr != null) {
+                buf.append(" ");
+                buf.append(hostingNameStr);
+            }
+            Slog.i(TAG, buf.toString());
+            app.setPid(startResult.pid);
+            app.usingWrapper = startResult.usingWrapper;
+            app.removed = false;
+            app.killed = false;
+            app.killedByAm = false;
+            checkTime(startTime, "startProcess: starting to update pids map");
+            ProcessRecord oldApp;
+            synchronized (mPidsSelfLocked) {
+                oldApp = mPidsSelfLocked.get(startResult.pid);
+            }
+            // If there is already an app occupying that pid that hasn't been cleaned up
+            if (oldApp != null && !app.isolated) {
+                // Clean up anything relating to this pid first
+                Slog.w(TAG, "Reusing pid " + startResult.pid
+                        + " while app is still mapped to it");
+                cleanUpApplicationRecordLocked(oldApp, false, false, -1,
+                        true /*replacingPid*/);
+            }
+            synchronized (mPidsSelfLocked) {
+                this.mPidsSelfLocked.put(startResult.pid, app);
+                if (isActivityProcess) {
+                    Message msg = mHandler.obtainMessage(PROC_START_TIMEOUT_MSG);
+                    msg.obj = app;
+                    mHandler.sendMessageDelayed(msg, startResult.usingWrapper
+                            ? PROC_START_TIMEOUT_WITH_WRAPPER : PROC_START_TIMEOUT);
+                }
+            }
+            checkTime(startTime, "startProcess: done updating pids map");
+        } catch (RuntimeException e) {
+            Slog.e(TAG, "Failure starting process " + app.processName, e);
+
+            // Something went very wrong while trying to start this process; one
+            // common case is when the package is frozen due to an active
+            // upgrade. To recover, clean up any active bookkeeping related to
+            // starting this process. (We already invoked this method once when
+            // the package was initially frozen through KILL_APPLICATION_MSG, so
+            // it doesn't hurt to use it again.)
+            forceStopPackageLocked(app.info.packageName, UserHandle.getAppId(app.uid), false,
+                    false, true, false, false, UserHandle.getUserId(app.userId), "start failure");
+        }
+    }
+
+
+
     final ProcessRecord startProcessLocked(String processName,
             ApplicationInfo info, boolean knownToBeDead, int intentFlags,
             String hostingType, ComponentName hostingName, boolean allowWhileBooting,

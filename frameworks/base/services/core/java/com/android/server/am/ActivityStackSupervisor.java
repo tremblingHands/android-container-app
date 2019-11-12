@@ -1417,19 +1417,24 @@ public final class ActivityStackSupervisor implements DisplayListener {
         // omni
         Slog.w("omni", "omni ActivityStackSupervisor.java intent = " + r.intent);
         Slog.w("omni", "omni ActivityStackSupervisor.java intent extras = " + r.intent.getExtras());
-        if (r.intent.hasExtra("myname")) {
+        if (r.intent.hasExtra("myname") && "omni".equals(r.intent.getExtra("myname"))) {
             Slog.w("omni", "omni get intent extras myname !!!! = " + r.intent.getExtra("myname"));
             if ("omni".equals(r.intent.getExtra("myname"))) {
                 Slog.w("omni", "omni intent extras myname get exactly !!!!!");
             }
+
+            mService.omnistartProcessLocked(r.processName, r.info.applicationInfo, true, 0,
+                "activity", r.intent.getComponent(), false, false, true, r.intent);
+
         } else {
             Slog.w("omni", "not get~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
+            mService.startProcessLocked(r.processName, r.info.applicationInfo, true, 0,
+                "activity", r.intent.getComponent(), false, false, true);
         }
-        
-
-
+        /*
         mService.startProcessLocked(r.processName, r.info.applicationInfo, true, 0,
                 "activity", r.intent.getComponent(), false, false, true);
+        */
     }
 
     boolean checkStartAnyActivityPermission(Intent intent, ActivityInfo aInfo,

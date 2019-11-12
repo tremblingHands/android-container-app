@@ -20,6 +20,8 @@ import android.net.LocalSocket;
 import android.net.LocalSocketAddress;
 import android.system.Os;
 import android.util.Log;
+import android.content.Intent;
+
 import com.android.internal.os.Zygote;
 import dalvik.system.VMRuntime;
 import java.io.BufferedWriter;
@@ -60,6 +62,11 @@ public class Process {
      * @hide for internal use only.
      */
     public static final String SECONDARY_ZYGOTE_SOCKET = "zygote_secondary";
+
+    /**
+     * @hide for internal use only.
+     */
+    public static final String OMNI_ZYGOTE_SOCKET = "omni";
 
     /**
      * Defines the root UID.
@@ -412,6 +419,10 @@ public class Process {
             BufferedWriter zygoteWriter = null;
             final LocalSocket zygoteSocket = new LocalSocket();
 
+            // omni
+            Log.e("omni" , "Process.java omni try to connect socket :" + socketAddress);
+
+
             try {
                 // omni LocalSocket namespace
                 // ABSTRACT : 抽象命名空间
@@ -470,6 +481,11 @@ public class Process {
     static ZygoteState secondaryZygoteState;
 
     /**
+     * The state of the connection to the omni zygote.
+     */
+    static ZygoteState omniZygoteState;
+
+    /**
      * Start a new process.
      * 
      * <p>If processes are enabled, a new process is created and the
@@ -517,6 +533,66 @@ public class Process {
             return startViaZygote(processClass, niceName, uid, gid, gids,
                     debugFlags, mountExternal, targetSdkVersion, seInfo,
                     abi, instructionSet, appDataDir, zygoteArgs);
+        } catch (ZygoteStartFailedEx ex) {
+            Log.e(LOG_TAG,
+                    "Starting VM process through Zygote failed");
+            throw new RuntimeException(
+                    "Starting VM process through Zygote failed", ex);
+        }
+    }
+
+
+    /**
+     * Start a new process.
+     * 
+     * <p>If processes are enabled, a new process is created and the
+     * static main() function of a <var>processClass</var> is executed there.
+     * The process will continue running after this function returns.
+     * 
+     * <p>If processes are not enabled, a new thread in the caller's
+     * process is created and main() of <var>processClass</var> called there.
+     * 
+     * <p>The niceName parameter, if not an empty string, is a custom name to
+     * give to the process instead of using processClass.  This allows you to
+     * make easily identifyable processes even if you are using the same base
+     * <var>processClass</var> to start them.
+     * 
+     * @param processClass The class to use as the process's main entry
+     *                     point.
+     * @param niceName A more readable name to use for the process.
+     * @param uid The user-id under which the process will run.
+     * @param gid The group-id under which the process will run.
+     * @param gids Additional group-ids associated with the process.
+     * @param debugFlags Additional flags.
+     * @param targetSdkVersion The target SDK version for the app.
+     * @param seInfo null-ok SELinux information for the new process.
+     * @param abi non-null the ABI this app should be started with.
+     * @param instructionSet null-ok the instruction set to use.
+     * @param appDataDir null-ok the data directory of the app.
+     * @param zygoteArgs Additional arguments to supply to the zygote process.
+     * @param intent omni Intent
+     * 
+     * @return An object that describes the result of the attempt to start the process.
+     * @throws RuntimeException on fatal start failure
+     * 
+     * {@hide}
+     */
+    public static final ProcessStartResult omnistart(final String processClass,
+                                  final String niceName,
+                                  int uid, int gid, int[] gids,
+                                  int debugFlags, int mountExternal,
+                                  int targetSdkVersion,
+                                  String seInfo,
+                                  String abi,
+                                  String instructionSet,
+                                  String appDataDir,
+                                  String[] zygoteArgs,
+                                  Intent intent) {
+        try {
+            return omnistartViaZygote(processClass, niceName, uid, gid, gids,
+                    debugFlags, mountExternal, targetSdkVersion, seInfo,
+                    abi, instructionSet, appDataDir, zygoteArgs, intent);
+            
         } catch (ZygoteStartFailedEx ex) {
             Log.e(LOG_TAG,
                     "Starting VM process through Zygote failed");
@@ -737,6 +813,140 @@ public class Process {
         }
     }
 
+
+    /**
+     * Starts a new process via the zygote mechanism.
+     *
+     * @param processClass Class name whose static main() to run
+     * @param niceName 'nice' process name to appear in ps
+     * @param uid a POSIX uid that the new process should setuid() to
+     * @param gid a POSIX gid that the new process shuold setgid() to
+     * @param gids null-ok; a list of supplementary group IDs that the
+     * new process should setgroup() to.
+     * @param debugFlags Additional flags.
+     * @param targetSdkVersion The target SDK version for the app.
+     * @param seInfo null-ok SELinux information for the new process.
+     * @param abi the ABI the process should use.
+     * @param instructionSet null-ok the instruction set to use.
+     * @param appDataDir null-ok the data directory of the app.
+     * @param extraArgs Additional arguments to supply to the zygote process.
+     * @param intent omni intent
+     * @return An object that describes the result of the attempt to start the process.
+     * @throws ZygoteStartFailedEx if process start failed for any reason
+     */
+    private static ProcessStartResult omnistartViaZygote(final String processClass,
+                                  final String niceName,
+                                  final int uid, final int gid,
+                                  final int[] gids,
+                                  int debugFlags, int mountExternal,
+                                  int targetSdkVersion,
+                                  String seInfo,
+                                  String abi,
+                                  String instructionSet,
+                                  String appDataDir,
+                                  String[] extraArgs,
+                                  Intent intent)
+                                  throws ZygoteStartFailedEx {
+        synchronized(Process.class) {
+            ArrayList<String> argsForZygote = new ArrayList<String>();
+
+            // --runtime-args, --setuid=, --setgid=,
+            // and --setgroups= must go first
+            argsForZygote.add("--runtime-args");
+            argsForZygote.add("--setuid=" + uid);
+            argsForZygote.add("--setgid=" + gid);
+            if ((debugFlags & Zygote.DEBUG_ENABLE_JNI_LOGGING) != 0) {
+                argsForZygote.add("--enable-jni-logging");
+            }
+            if ((debugFlags & Zygote.DEBUG_ENABLE_SAFEMODE) != 0) {
+                argsForZygote.add("--enable-safemode");
+            }
+            if ((debugFlags & Zygote.DEBUG_ENABLE_DEBUGGER) != 0) {
+                argsForZygote.add("--enable-debugger");
+            }
+            if ((debugFlags & Zygote.DEBUG_ENABLE_CHECKJNI) != 0) {
+                argsForZygote.add("--enable-checkjni");
+            }
+            if ((debugFlags & Zygote.DEBUG_GENERATE_DEBUG_INFO) != 0) {
+                argsForZygote.add("--generate-debug-info");
+            }
+            if ((debugFlags & Zygote.DEBUG_ALWAYS_JIT) != 0) {
+                argsForZygote.add("--always-jit");
+            }
+            if ((debugFlags & Zygote.DEBUG_NATIVE_DEBUGGABLE) != 0) {
+                argsForZygote.add("--native-debuggable");
+            }
+            if ((debugFlags & Zygote.DEBUG_ENABLE_ASSERT) != 0) {
+                argsForZygote.add("--enable-assert");
+            }
+            if (mountExternal == Zygote.MOUNT_EXTERNAL_DEFAULT) {
+                argsForZygote.add("--mount-external-default");
+            } else if (mountExternal == Zygote.MOUNT_EXTERNAL_READ) {
+                argsForZygote.add("--mount-external-read");
+            } else if (mountExternal == Zygote.MOUNT_EXTERNAL_WRITE) {
+                argsForZygote.add("--mount-external-write");
+            }
+            argsForZygote.add("--target-sdk-version=" + targetSdkVersion);
+
+            //TODO optionally enable debuger
+            //argsForZygote.add("--enable-debugger");
+
+            // --setgroups is a comma-separated list
+            if (gids != null && gids.length > 0) {
+                StringBuilder sb = new StringBuilder();
+                sb.append("--setgroups=");
+
+                int sz = gids.length;
+                for (int i = 0; i < sz; i++) {
+                    if (i != 0) {
+                        sb.append(',');
+                    }
+                    sb.append(gids[i]);
+                }
+
+                argsForZygote.add(sb.toString());
+            }
+
+            if (niceName != null) {
+                argsForZygote.add("--nice-name=" + niceName);
+            }
+
+            if (seInfo != null) {
+                argsForZygote.add("--seinfo=" + seInfo);
+            }
+
+            if (instructionSet != null) {
+                argsForZygote.add("--instruction-set=" + instructionSet);
+            }
+
+            if (appDataDir != null) {
+                argsForZygote.add("--app-data-dir=" + appDataDir);
+            }
+
+            argsForZygote.add(processClass);
+
+            if (extraArgs != null) {
+                for (String arg : extraArgs) {
+                    argsForZygote.add(arg);
+                }
+            }
+
+            // omni 根据 abi 的不同连接到不同的 zygote socket
+            Log.e("omni","omni Process.java argsForZygote = " + argsForZygote);
+            Log.e("omni","omni Process.java intent = " + intent);
+            if (intent.hasExtra("myname")) {
+                Log.e("omni","omni Process.java intent has mymane = " + intent.getExtra("myname"));
+                if ("omni".equals(intent.getExtra("myname"))) {
+                    Log.e("omni","omni Process.java success get intent mymane = omni !!!!!!!!!!!!!");
+                } else {
+                    Log.e("omni","error ~~~~~~~~~~~~~~~~~~ omni Process.java not get intent myname");
+                }
+            }
+
+            return zygoteSendArgsAndGetResult(omniopenZygoteSocketIfNeeded(abi), argsForZygote);
+        }
+    }
+
     /**
      * Tries to establish a connection to the zygote that handles a given {@code abi}. Might block and retry if the
      * zygote is unresponsive. This method is a no-op if a connection is already open.
@@ -750,6 +960,65 @@ public class Process {
             throw new RuntimeException("Unable to connect to zygote for abi: " + abi, ex);
         }
     }
+
+    /**
+     * Tries to open socket to Zygote process if not already open. If
+     * already open, does nothing.  May block and retry.
+     */
+    private static ZygoteState omniopenZygoteSocketIfNeeded(String abi) throws ZygoteStartFailedEx {
+        if (primaryZygoteState == null) {
+            // omni
+            Log.e("omni","omni Process.java  omniopenZygoteSocketIfNeeded  primaryZygoteState is not shared");
+        }
+
+        if (omniZygoteState == null || omniZygoteState.isClosed()) {
+            try {
+                omniZygoteState = ZygoteState.connect(OMNI_ZYGOTE_SOCKET);
+            } catch (IOException ioe) {
+                throw new ZygoteStartFailedEx("Error connecting to omni zygote", ioe);
+            }
+        }
+
+        if (omniZygoteState.matches(abi)) {
+
+            // omni
+            Log.e("omni","omni Process.java  omniZygoteState.matches !!!!!!!~~~~~~~~~~~~");
+            return omniZygoteState;
+        }
+
+        Log.e("omni","omni Process.java  omni not matches !!!!!!!~~~~~~~~~~~~");
+
+
+
+
+        if (primaryZygoteState == null || primaryZygoteState.isClosed()) {
+            try {
+                primaryZygoteState = ZygoteState.connect(ZYGOTE_SOCKET);
+            } catch (IOException ioe) {
+                throw new ZygoteStartFailedEx("Error connecting to primary zygote", ioe);
+            }
+        }
+
+        if (primaryZygoteState.matches(abi)) {
+            return primaryZygoteState;
+        }
+
+        // The primary zygote didn't match. Try the secondary.
+        if (secondaryZygoteState == null || secondaryZygoteState.isClosed()) {
+            try {
+            secondaryZygoteState = ZygoteState.connect(SECONDARY_ZYGOTE_SOCKET);
+            } catch (IOException ioe) {
+                throw new ZygoteStartFailedEx("Error connecting to secondary zygote", ioe);
+            }
+        }
+
+        if (secondaryZygoteState.matches(abi)) {
+            return secondaryZygoteState;
+        }
+
+        throw new ZygoteStartFailedEx("Unsupported zygote ABI: " + abi);
+    }
+
 
     /**
      * Tries to open socket to Zygote process if not already open. If
