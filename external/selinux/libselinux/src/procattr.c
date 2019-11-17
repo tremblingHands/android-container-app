@@ -178,6 +178,14 @@ static int getprocattrcon_raw(char ** context,
 static int getprocattrcon(char ** context,
 			  pid_t pid, const char *attr)
 {
+	// omni
+	(void)context;
+	(void)attr;
+	*context = strdup("");
+	return 0;
+
+
+
 	int ret;
 	char * rcontext;
 

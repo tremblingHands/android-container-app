@@ -560,6 +560,9 @@ static void selinux_initialize(bool in_kernel_domain) {
         INFO("Loading SELinux policy...\n");
         if (selinux_android_load_policy() < 0) {
             ERROR("failed to load policy: %s\n", strerror(errno));
+            // omni
+	    return;
+
             security_failure();
         }
 

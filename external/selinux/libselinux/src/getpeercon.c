@@ -47,6 +47,13 @@ hidden_def(getpeercon_raw)
 
 int getpeercon(int fd, char ** context)
 {
+	// omni
+	(void)fd;
+	*context = strdup("");
+	return 0;
+
+
+
 	int ret;
 	char * rcontext;
 

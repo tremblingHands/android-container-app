@@ -344,6 +344,8 @@ bool Service::Start() {
     }
 
     std::string scon;
+
+/** omni
     if (!seclabel_.empty()) {
         scon = seclabel_;
     } else {
@@ -384,6 +386,7 @@ bool Service::Start() {
             return false;
         }
     }
+**/
 
     NOTICE("Starting service '%s'...\n", name_.c_str());
 

@@ -29,6 +29,12 @@ hidden_def(setfilecon_raw)
 
 int setfilecon(const char *path, const char *context)
 {
+	// omni
+	(void)path;
+	(void)context;
+	return 0;
+
+
 	int ret;
 	char * rcontext;
 

@@ -16,6 +16,8 @@ ENFORCING = 1
 
 def restorecon(path, recursive=False):
     """ Restore SELinux context on a given path """
+    /* omni */
+    return
 
     try:
         mode = os.lstat(path)[stat.ST_MODE]

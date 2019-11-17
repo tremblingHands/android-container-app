@@ -6,6 +6,13 @@
 
 int setexecfilecon(const char *filename, const char *fallback_type)
 {
+
+	// omni
+	(void)filename;
+	(void)fallback_type;
+	return 0;
+
+
 	char * mycon = NULL, *fcon = NULL, *newcon = NULL;
 	context_t con = NULL;
 	int rc = 0;

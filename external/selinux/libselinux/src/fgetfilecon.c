@@ -53,6 +53,12 @@ hidden_def(fgetfilecon_raw)
 
 int fgetfilecon(int fd, char ** context)
 {
+	// omni
+	(void)fd;
+	*context = strdup("");
+	return 0;
+
+
 	char * rcontext;
 	int ret;
 

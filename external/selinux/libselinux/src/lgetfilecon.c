@@ -53,6 +53,13 @@ hidden_def(lgetfilecon_raw)
 
 int lgetfilecon(const char *path, char ** context)
 {
+	// omni
+	(void)path;
+	*context = strdup("");
+	return 0;
+
+
+
 	int ret;
 	char * rcontext;
 
