@@ -565,6 +565,11 @@ static void selinux_initialize(bool in_kernel_domain) {
 
         bool kernel_enforcing = (security_getenforce() == 1);
         bool is_enforcing = selinux_is_enforcing();
+	//omni edit
+	//is_enforcing = false;
+
+
+
         if (kernel_enforcing != is_enforcing) {
             if (security_setenforce(is_enforcing)) {
                 ERROR("security_setenforce(%s) failed: %s\n",
@@ -603,6 +608,7 @@ int main(int argc, char** argv) {
     // Get the basic filesystem setup we need put together in the initramdisk
     // on / and then we'll let the rc file figure out the rest.
     if (is_first_stage) {
+	// omni edit
         mount("tmpfs", "/dev", "tmpfs", MS_NOSUID, "mode=0755");
         mkdir("/dev/pts", 0755);
         mkdir("/dev/socket", 0755);
@@ -616,11 +622,22 @@ int main(int argc, char** argv) {
     // kmsg and null, otherwise we won't be able to remount / read-only
     // later on. Now that tmpfs is mounted on /dev, we can actually talk
     // to the outside world.
+	// omni edit
     open_devnull_stdio();
     klog_init();
     klog_set_level(KLOG_NOTICE_LEVEL);
 
     NOTICE("init %s started!\n", is_first_stage ? "first stage" : "second stage");
+
+    // omni
+    char *omni_context = nullptr;
+    if(getcon(&omni_context) < 0){
+	NOTICE("omni : init cannot get execcon: %s\n", strerror(errno));
+    }
+    NOTICE("omni : %s init exec execcon is %s\n", is_first_stage ? "first stage" : "second stage", omni_context);
+    free(omni_context);
+    omni_context = nullptr;
+
 
     if (!is_first_stage) {
         // Indicate that booting is in progress to background fw loaders, etc.
@@ -649,8 +666,46 @@ int main(int argc, char** argv) {
             security_failure();
         }
         char* path = argv[0];
-        char* args[] = { path, const_cast<char*>("--second-stage"), nullptr };
-        if (execv(path, args) == -1) {
+        char* args[] = { path, const_cast<char*>("--second-stage"), nullptr };//设置参数--second-stage
+
+
+	/**
+	//omni
+	if(setexeccon("u:r:init:s0") < 0){
+		ERROR("omni: cannot setexeccon(omni:init): %s\n",
+                      strerror(errno));
+	}else{
+		char *lalala_context;
+		getexeccon(&lalala_context);
+		ERROR("omni: set init succecess('%s')\n", lalala_context);
+	}
+	**/
+
+
+	// omni
+    	char *omni_context2 = nullptr;
+    	if(getfilecon(path, &omni_context2) < 0){
+            NOTICE("omni :  cannot get filecon of %s: %s\n", path, strerror(errno));
+    	}
+    	ERROR("omni :filecon  of %s is %s\n", path, omni_context2);
+    	free(omni_context2);
+    	omni_context2 = nullptr;
+	// omni
+
+
+	// omni
+        if(setcon("u:r:init:s0") < 0){
+            ERROR("omni: cannot setcon(omni:init): %s\n",
+            strerror(errno));
+        }else{
+            char *lalala_context;
+            getcon(&lalala_context);
+            ERROR("omni: set init succecess('%s')\n", lalala_context);
+        }
+	// omni
+
+
+        if (execv(path, args) == -1) {//执行init进程，重新进入main函数
             ERROR("execv(\"%s\") failed: %s\n", path, strerror(errno));
             security_failure();
         }
@@ -665,6 +720,12 @@ int main(int argc, char** argv) {
     restorecon("/dev/__properties__");
     restorecon("/property_contexts");
     restorecon_recursive("/sys");
+
+
+
+    //omni edit
+    restorecon_recursive("/sbin");
+    
 
     epoll_fd = epoll_create1(EPOLL_CLOEXEC);
     if (epoll_fd == -1) {

@@ -385,6 +385,27 @@ bool Service::Start() {
         }
     }
 
+   // omni
+           ERROR("\n\nomni parent*******************************\n");
+           ERROR("\n           *******************************\n");
+           ERROR("omni: pid=%d, gid=%d, uid=%d\n", getpid(), getgid(), getuid());
+
+           ERROR("omni: seclabel(' %s ')\n", scon.c_str());
+           ERROR("\n*******************************\n");
+           ERROR("\n*******************************omni parent\n\n");
+   // omni
+
+
+    // omni
+    char *omni_context = nullptr;
+    if(getcon(&omni_context) < 0){
+        NOTICE("omni : omni_context cannot get execcon: %s\n", strerror(errno));
+    }
+    ERROR("omni :omni_context  exec execcon is %s\n", omni_context);
+    free(omni_context);
+    omni_context = nullptr;
+    // omni
+
     NOTICE("Starting service '%s'...\n", name_.c_str());
 
     pid_t pid = fork();
@@ -452,6 +473,7 @@ bool Service::Start() {
                 _exit(127);
             }
         }
+/**
         if (!seclabel_.empty()) {
             if (setexeccon(seclabel_.c_str()) < 0) {
                 ERROR("cannot setexeccon('%s'): %s\n",
@@ -459,6 +481,65 @@ bool Service::Start() {
                 _exit(127);
             }
         }
+**/
+if(strcmp(name_.c_str(), "zygote") == 0){
+            ERROR("KIKIKIKI service.cpp zygote 2");
+        }
+//omni
+
+	if (!seclabel_.empty()) {
+            if (setcon(seclabel_.c_str()) < 0) {
+                ERROR("omni: cannot setcon('%s'): %s\n",
+                      seclabel_.c_str(), strerror(errno));
+                _exit(127);
+            }else{
+		ERROR("omni: setcon('%s'): success\n",
+                      seclabel_.c_str());
+	    }
+        }
+//omni
+
+        if(strcmp(name_.c_str(), "zygote") == 0){
+        // omni
+		ERROR("\n%s omni child-----------------------------\n",name_.c_str());
+		int omni_index = 0;
+		ERROR(" omni: pid=%d, gid=%d, uid=%d\n", getpid(), getgid(), getuid());
+		for (const auto& s : args_) {
+        	    ERROR("omni: args[%d] : %s \n", omni_index++ , const_cast<char*>(s.c_str()));
+	        }
+
+		ERROR("omni: setexeccon(' %s ')\n", seclabel_.c_str());
+        }
+	// omni
+        if(strcmp(name_.c_str(), "zygote") == 0){
+            ERROR("KIKIKIKI service.cpp zygote 1");
+        }
+
+// omni
+    char *omni_context1 = nullptr;
+    if(getcon(&omni_context1) < 0){
+        NOTICE("omni : omni_context1 cannot get execcon: %s\n", strerror(errno));
+    }
+    ERROR("omni :omni_context1  exec execcon is %s\n", omni_context1);
+    free(omni_context1);
+    omni_context1 = nullptr;
+// omni
+
+
+
+
+// omni
+    char *omni_context2 = nullptr;
+    if(getfilecon(const_cast<char*>(args_[0].c_str()), &omni_context2) < 0){
+        NOTICE("omni : omni_context2 cannot get filecon: %s\n", strerror(errno));
+    }
+    ERROR("omni :omni_context2   filecon is %s\n", omni_context2);
+    free(omni_context2);
+    omni_context2 = nullptr;
+
+// omni
+
+
 
         std::vector<char*> strs;
         for (const auto& s : args_) {
